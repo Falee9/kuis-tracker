@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Sistem Kuis Praktikum</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; margin: 0; padding: 20px; }
+        .container { position: relative; display: inline-block; border: 4px solid #333; border-radius: 8px; overflow: hidden; }
+        video { display: none; } /* Video asli disembunyikan, kita pakai canvas */
+        canvas { display: block; background-color: #000; }
+        #status { font-size: 24px; font-weight: bold; margin-bottom: 10px; color: #333; }
+        button { padding: 10px 20px; font-size: 18px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; margin-top: 15px; }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <div id="status">Status: Memuat Kamera...</div>
+    
+    <div class="container">
+        <video id="input_video" width="800" height="600"></video>
+        <canvas id="output_canvas" width="800" height="600"></canvas>
+    </div>
+    
+    <br>
+    <button id="reset_btn" onclick="resetRonde()">Reset Ronde</button>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusText = document.getElementById('status');
+
+        let winnerFound = false;
+        let winnerPos = null;
+
+        function resetRonde() {
+            winnerFound = false;
+            winnerPos = null;
+            statusText.innerText = "Status: Mencari yang tercepat...";
+            statusText.style.color = "black";
+        }
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Gambar tangkapan kamera ke kanvas (di-flip seperti cermin)
+            canvasCtx.translate(canvasElement.width, 0);
+            canvasCtx.scale(-1, 1);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            // Tentukan garis batas (30% dari atas layar)
+            const batasY = canvasElement.height * 0.3;
+
+            // Kembalikan orientasi untuk menggambar UI
+            canvasCtx.translate(canvasElement.width, 0);
+            canvasCtx.scale(-1, 1);
+
+            // Gambar garis batas
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(0, batasY);
+            canvasCtx.lineTo(canvasElement.width, batasY);
+            canvasCtx.lineWidth = 4;
+            canvasCtx.strokeStyle = 'yellow';
+            canvasCtx.stroke();
+            
+            canvasCtx.font = "20px Arial";
+            canvasCtx.fillStyle = "yellow";
+            canvasCtx.fillText("Garis Batas Angkat Tangan", 10, batasY - 10);
+
+            if (!winnerFound) {
+                if (results.multiHandLandmarks) {
+                    for (const landmarks of results.multiHandLandmarks) {
+                        // Titik 12 adalah ujung jari tengah
+                        const ujungJari = landmarks[12];
+                        const cx = canvasElement.width - (ujungJari.x * canvasElement.width); // Disesuaikan dengan mirror
+                        const cy = ujungJari.y * canvasElement.height;
+
+                        // Gambar titik biru di ujung jari
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(cx, cy, 10, 0, 2 * Math.PI);
+                        canvasCtx.fillStyle = 'blue';
+                        canvasCtx.fill();
+
+                        // Cek apakah melewati garis batas
+                        if (cy < batasY) {
+                            winnerFound = true;
+                            winnerPos = { x: cx, y: cy };
+                            statusText.innerText = ">>> ADA PEMENANG! <<<";
+                            statusText.style.color = "red";
+                            break;
+                        }
+                    }
+                }
+            } else {
+                // Bekukan visualisasi pada pemenang
+                canvasCtx.beginPath();
+                canvasCtx.arc(winnerPos.x, winnerPos.y, 50, 0, 2 * Math.PI);
+                canvasCtx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+                canvasCtx.fill();
+                canvasCtx.lineWidth = 5;
+                canvasCtx.strokeStyle = 'white';
+                canvasCtx.stroke();
+
+                canvasCtx.font = "bold 30px Arial";
+                canvasCtx.fillStyle = "red";
+                canvasCtx.fillText("TERCEPAT!", winnerPos.x - 70, winnerPos.y - 60);
+            }
+            canvasCtx.restore();
+        }
+
+        // Konfigurasi MediaPipe Hands
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+        hands.setOptions({
+            maxNumHands: 10,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+        hands.onResults(onResults);
+
+        // Menjalankan Kamera
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 800,
+            height: 600
+        });
+        
+        camera.start().then(() => {
+            statusText.innerText = "Status: Sistem Aktif - Menunggu Tangan...";
+        }).catch((err) => {
+            statusText.innerText = "Error: Kamera tidak terdeteksi atau izin ditolak.";
+            console.error(err);
+        });
+    </script>
+</body>
+</html>
